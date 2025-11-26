@@ -120,18 +120,22 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         lastLocation = loc
         isInServiceArea = serviceAreas.contains { $0.contains(loc.coordinate) }
 
-        geocoder.cancelGeocode()
-        geocoder.reverseGeocodeLocation(loc) { [weak self] placemarks, _ in
-            guard let self = self else { return }
-            if let pm = placemarks?.first {
-                Task { @MainActor in
-                    self.placemark = pm
-                }
-            }
-        }
+        // Reverse geocode using Core Location (works across all supported iOS versions).
+        reverseGeocode(location: loc)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { }
+
+    // MARK: - Reverse Geocoding (Core Location)
+    private func reverseGeocode(location: CLLocation) {
+        geocoder.cancelGeocode()
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
+            guard let self = self, let pm = placemarks?.first else { return }
+            Task { @MainActor in
+                self.placemark = pm
+            }
+        }
+    }
 }
 
 // MARK: - Root with Mode Switch
