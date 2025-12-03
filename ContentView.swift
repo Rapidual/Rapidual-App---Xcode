@@ -1,7 +1,7 @@
 //  ContentView.swift
 //  Rapidual - App
 //
-//  Created by Thomas Peters on 11/16/25.
+//  Created by Thomas Peters on 10/16/24.
 //
 
 import SwiftUI
@@ -24,102 +24,6 @@ private enum AppTheme {
     static let cornerLarge: CGFloat = 22
     static let corner: CGFloat = 16
     static let cornerSmall: CGFloat = 12
-}
-
-// MARK: - Location / Availability
-
-struct ServiceArea: Identifiable {
-    let id = UUID()
-    let name: String
-    let center: CLLocationCoordinate2D
-    let radius: CLLocationDistance // meters
-
-    func contains(_ coordinate: CLLocationCoordinate2D) -> Bool {
-        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let there = CLLocation(latitude: center.latitude, longitude: center.longitude)
-        return there.distance(from: here) <= radius
-    }
-
-    // Only available in these California cities
-    static let defaultAreas: [ServiceArea] = [
-        .init(name: "Newport Beach, CA",
-              center: CLLocationCoordinate2D(latitude: 33.6189, longitude: -117.9298),
-              radius: 11_000),
-        .init(name: "Huntington Beach, CA",
-              center: CLLocationCoordinate2D(latitude: 33.6603, longitude: -117.9992),
-              radius: 12_000),
-        .init(name: "Irvine, CA",
-              center: CLLocationCoordinate2D(latitude: 33.6846, longitude: -117.8265),
-              radius: 13_000),
-        .init(name: "Costa Mesa, CA",
-              center: CLLocationCoordinate2D(latitude: 33.6411, longitude: -117.9187),
-              radius: 7_000),
-        .init(name: "Tustin, CA",
-              center: CLLocationCoordinate2D(latitude: 33.7458, longitude: -117.8262),
-              radius: 6_000),
-        .init(name: "Fountain Valley, CA",
-              center: CLLocationCoordinate2D(latitude: 33.7090, longitude: -117.9537),
-              radius: 6_000)
-    ]
-}
-
-@MainActor
-final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
-    enum Status {
-        case notDetermined, denied, restricted, authorized
-    }
-
-    @Published var status: Status = .notDetermined
-    @Published var lastLocation: CLLocation?
-    @Published var isInServiceArea: Bool?
-
-    private let manager = CLLocationManager()
-    private let serviceAreas: [ServiceArea]
-
-    override init() {
-        self.serviceAreas = ServiceArea.defaultAreas
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 100
-    }
-
-    func requestAuthorization() {
-        manager.requestWhenInUseAuthorization()
-    }
-
-    func refreshLocation() {
-        guard CLLocationManager.locationServicesEnabled() else { return }
-        manager.requestLocation()
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        updateAuthorization(manager.authorizationStatus)
-        switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            refreshLocation()
-        default:
-            break
-        }
-    }
-
-    private func updateAuthorization(_ clStatus: CLAuthorizationStatus) {
-        switch clStatus {
-        case .notDetermined: status = .notDetermined
-        case .restricted:    status = .restricted
-        case .denied:        status = .denied
-        case .authorizedAlways, .authorizedWhenInUse: status = .authorized
-        @unknown default:    status = .notDetermined
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let loc = locations.last else { return }
-        lastLocation = loc
-        isInServiceArea = serviceAreas.contains { $0.contains(loc.coordinate) }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { }
 }
 
 // MARK: - Root with Mode Switch
@@ -219,7 +123,7 @@ struct CustomerMainTabView: View {
             }
             .tabItem {
                 Image(systemName: "waveform.path.ecg")
-                Text("Activity")
+                Text("Orders")
             }
 
             NavigationStack {
@@ -227,15 +131,7 @@ struct CustomerMainTabView: View {
             }
             .tabItem {
                 Image(systemName: "building.2.fill")
-                Text("Retail")
-            }
-
-            NavigationStack {
-                SupportTicketsView()
-            }
-            .tabItem {
-                Image(systemName: "questionmark.circle.fill")
-                Text("Support")
+                Text("Shop")
             }
 
             NavigationStack {
@@ -262,6 +158,15 @@ struct CustomerHomeView: View {
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     )
     @State private var phoneNumber: String = ""
+    @State private var searchTextHome: String = ""
+
+    @State private var pickupMode: PickupMode = .asap
+    @State private var scheduledDate: Date = Date()
+
+    enum PickupMode: String, CaseIterable {
+        case asap = "ASAP"
+        case later = "Later"
+    }
 
     // Names-only tiles with additional row
     private var retailerNames: [String] {
@@ -272,17 +177,43 @@ struct CustomerHomeView: View {
         ]
     }
 
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "Good Morning"
+        case 12..<17: return "Good Afternoon"
+        case 17..<22: return "Good Evening"
+        default: return "Hello"
+        }
+    }
+
+    private var pickupWindowText: String {
+        switch pickupMode {
+        case .asap:
+            return "25–35 min"
+        case .later:
+            let fmt = DateFormatter()
+            fmt.dateFormat = "EEE h:mm a"
+            return fmt.string(from: scheduledDate)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                availabilityPill
+                homeHeroHeader
+
+                quickActionsChips
 
                 laundryHeroCard
-                quickActionsChips
+
+                popularRetailersRow
+
                 personalizedSection
-                linkRetailAccounts
+
                 savingsGrid
                 savingsSummaryPair
+
                 footerSignupCentered
             }
             .padding(.horizontal, 16)
@@ -303,6 +234,116 @@ struct CustomerHomeView: View {
             }
         }
     }
+
+    // MARK: - Modernized Header
+
+    private var homeHeroHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(greeting)
+                    .font(.title2.weight(.heavy))
+                    .foregroundColor(.white)
+                Spacer()
+                Button {
+                    // Could open settings or preferences
+                } label: {
+                    Image(systemName: "bell")
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(8)
+                        .background(Color.white.opacity(0.12), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "mappin.and.ellipse")
+                    .foregroundColor(.white.opacity(0.9))
+                Group {
+                    switch locationService.status {
+                    case .authorized:
+                        if let city = locationService.placemark?.locality ?? locationService.locality {
+                            Text("Delivering to \(city)")
+                        } else {
+                            Text("Locating…")
+                                .redacted(reason: .placeholder)
+                        }
+                    case .notDetermined:
+                        Text("Enable location to set your address")
+                    case .denied, .restricted:
+                        Text("Enable Location in Settings")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.95))
+                Spacer()
+                availabilityStatusSmall
+            }
+
+            SearchBarLarge(text: $searchTextHome, placeholder: "Search retailers, items, or help")
+        }
+        .padding(16)
+        .background(
+            LinearGradient(colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+        )
+        .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 6)
+    }
+
+    private var availabilityStatusSmall: some View {
+        Group {
+            switch locationService.status {
+            case .notDetermined:
+                Pill(background: Color.white.opacity(0.15)) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "location.fill")
+                            .foregroundColor(.white)
+                        Text("Enable")
+                            .foregroundColor(.white)
+                            .font(.caption).bold()
+                    }
+                }
+                .onTapGesture { locationService.requestAuthorization() }
+            case .restricted, .denied:
+                Pill(background: Color.white.opacity(0.15)) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.yellow)
+                        Text("Off")
+                            .foregroundColor(.white)
+                            .font(.caption).bold()
+                    }
+                }
+            case .authorized:
+                if let isIn = locationService.isInServiceArea {
+                    if isIn {
+                        Pill(background: Color.white.opacity(0.15)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill").foregroundColor(.white)
+                                Text("Available").foregroundColor(.white).font(.caption).bold()
+                            }
+                        }
+                    } else {
+                        Pill(background: Color.white.opacity(0.15)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "xmark.circle.fill").foregroundColor(.white)
+                                Text("Coming soon").foregroundColor(.white).font(.caption).bold()
+                            }
+                        }
+                    }
+                } else {
+                    Pill(background: Color.white.opacity(0.15)) {
+                        HStack(spacing: 6) {
+                            ProgressView().tint(.white)
+                            Text("Checking").foregroundColor(.white).font(.caption).bold()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Availability Pill (kept, not displayed in header anymore)
 
     private var availabilityPill: some View {
         Pill(background: .white, content: {
@@ -362,7 +403,7 @@ struct CustomerHomeView: View {
         .shadow(color: AppTheme.shadow, radius: 10, x: 0, y: 6)
     }
 
-    // MARK: - Hero Order Card
+    // MARK: - Hero Order Card (refined)
 
     private var laundryHeroCard: some View {
         Card {
@@ -373,9 +414,14 @@ struct CustomerHomeView: View {
                         .fill(Color.white.opacity(0.2))
                         .frame(width: 36, height: 36)
                         .overlay(Image(systemName: "washer").foregroundColor(.white))
-                    Text("Laundry: On Demand")
-                        .font(.headline)
-                        .foregroundColor(.white)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Laundry: On Demand")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text("Pickup & redelivery that fits your day")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.9))
+                    }
                     Spacer()
                 }
                 .padding(12)
@@ -385,9 +431,23 @@ struct CustomerHomeView: View {
                     in: RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous)
                 )
 
+                // Mode: ASAP vs Later
+                PickupModeSwitcher(mode: $pickupMode)
+
+                if pickupMode == .later {
+                    HStack(spacing: 8) {
+                        Image(systemName: "calendar")
+                            .foregroundColor(.secondary)
+                        DatePicker("Pickup time", selection: $scheduledDate, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                            .labelsHidden()
+                    }
+                    .padding(10)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
+                }
+
                 // Centered "How Many Bags" block
                 VStack(spacing: 10) {
-                    Text("How Many Bags")
+                    Text("How many bags?")
                         .font(.headline)
                         .multilineTextAlignment(.center)
 
@@ -419,17 +479,32 @@ struct CustomerHomeView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
 
-                HStack {
-                    Text("Estimated cost:")
-                        .foregroundColor(.secondary)
+                // ETA + Cost
+                HStack(spacing: 12) {
+                    HStack {
+                        Image(systemName: "clock")
+                            .foregroundColor(.secondary)
+                        Text("Pickup \(pickupMode == .asap ? "ETA" : "at") \(pickupWindowText)")
+                            .foregroundColor(.primary)
+                            .font(.subheadline)
+                    }
+                    .padding(10)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
+                    .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+
                     Spacer()
-                    Text("$\(Int(estimatedCost))")
-                        .font(.headline)
-                        .foregroundColor(.primary)
+
+                    HStack {
+                        Text("Est.")
+                            .foregroundColor(.secondary)
+                        Text("$\(Int(estimatedCost))")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(10)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
+                    .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
                 }
-                .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
-                .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
 
                 ZStack(alignment: .topTrailing) {
                     Button {
@@ -437,7 +512,7 @@ struct CustomerHomeView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "bag.fill")
-                            Text("Order Now")
+                            Text("Start Order")
                                 .font(.headline)
                         }
                         .foregroundColor(.white)
@@ -452,7 +527,7 @@ struct CustomerHomeView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("FAST")
+                    Text(pickupMode == .asap ? "ASAP" : "SCHEDULED")
                         .font(.caption2).bold()
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
@@ -492,6 +567,33 @@ struct CustomerHomeView: View {
             }
             .padding(.horizontal, 2)
         }
+    }
+
+    // MARK: - Popular Retailers
+
+    private var popularRetailersRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Popular near you")
+                    .font(.headline)
+                Spacer()
+                Button("See all") { }
+                    .font(.caption).bold()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.08), in: Capsule())
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(retailerNames, id: \.self) { name in
+                        PopularRetailerChip(name: name, tint: brandTint(for: name))
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(.top, 2)
     }
 
     // MARK: - Personalized
@@ -927,6 +1029,83 @@ private struct SavingsMetricCard: View {
     }
 }
 
+// MARK: - Extra Customer Home Helpers
+
+private struct SearchBarLarge: View {
+    @Binding var text: String
+    var placeholder: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField(placeholder, text: $text)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+        )
+    }
+}
+
+private struct PickupModeSwitcher: View {
+    @Binding var mode: CustomerHomeView.PickupMode
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(CustomerHomeView.PickupMode.allCases, id: \.self) { option in
+                Button {
+                    mode = option
+                } label: {
+                    Text(option.rawValue)
+                        .font(.subheadline.bold())
+                        .foregroundColor(mode == option ? .white : .primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(mode == option ? Color.black : Color.clear, in: Capsule())
+                        .overlay(
+                            Capsule().stroke(mode == option ? Color.black : Color.secondary.opacity(0.35), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct PopularRetailerChip: View {
+    let name: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(tint.opacity(0.15))
+                .frame(width: 28, height: 28)
+                .overlay(Image(systemName: "bag.fill").foregroundColor(tint))
+            Text(name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: AppTheme.shadow, radius: 6, x: 0, y: 3)
+    }
+}
+
 // MARK: - Customer Orders (Activity content)
 
 struct CustomerOrdersView: View {
@@ -1023,7 +1202,7 @@ struct CustomerOrdersView: View {
             .padding(.vertical, 16)
         }
         .background(AppTheme.softBG.ignoresSafeArea())
-        .navigationTitle("Activity")
+        .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1706,7 +1885,7 @@ struct CustomerExploreView: View {
 
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Retail Marketplace")
+                    Text("Marketplace")
                         .font(.system(size: 32, weight: .heavy))
                     Text("Shop from your favorite retailers and receive free rapid delivery with your laundry redelivery")
                         .foregroundColor(.secondary)
