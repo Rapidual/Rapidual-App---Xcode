@@ -123,7 +123,7 @@ struct CustomerMainTabView: View {
             }
             .tabItem {
                 Image(systemName: "waveform.path.ecg")
-                Text("Activity")
+                Text("Orders")
             }
 
             NavigationStack {
@@ -131,15 +131,7 @@ struct CustomerMainTabView: View {
             }
             .tabItem {
                 Image(systemName: "building.2.fill")
-                Text("Retail")
-            }
-
-            NavigationStack {
-                SupportTicketsView()
-            }
-            .tabItem {
-                Image(systemName: "questionmark.circle.fill")
-                Text("Support")
+                Text("Shop")
             }
 
             NavigationStack {
@@ -188,9 +180,9 @@ struct CustomerHomeView: View {
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<12: return "Good morning"
-        case 12..<17: return "Good afternoon"
-        case 17..<22: return "Good evening"
+        case 5..<12: return "Good Morning"
+        case 12..<17: return "Good Afternoon"
+        case 17..<22: return "Good Evening"
         default: return "Hello"
         }
     }
@@ -1210,7 +1202,7 @@ struct CustomerOrdersView: View {
             .padding(.vertical, 16)
         }
         .background(AppTheme.softBG.ignoresSafeArea())
-        .navigationTitle("Activity")
+        .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1893,7 +1885,7 @@ struct CustomerExploreView: View {
 
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Retail Marketplace")
+                    Text("Marketplace")
                         .font(.system(size: 32, weight: .heavy))
                     Text("Shop from your favorite retailers and receive free rapid delivery with your laundry redelivery")
                         .foregroundColor(.secondary)
