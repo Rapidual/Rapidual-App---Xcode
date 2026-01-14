@@ -33,6 +33,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Top-level header with mode switcher
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Spacer()
@@ -49,6 +50,7 @@ struct ContentView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
+                    .padding(.horizontal, 16)
                 }
             }
             .padding(.top, 16)
@@ -101,6 +103,10 @@ struct ModeSwitcher: View {
     }
 }
 
+#Preview("Driver Flow") {
+    DriverAppView()
+}
+
 #Preview {
     ContentView()
 }
@@ -108,8 +114,10 @@ struct ModeSwitcher: View {
 // MARK: - CUSTOMER EXPERIENCE
 
 struct CustomerMainTabView: View {
+    @State private var selectedTab: Int = 0
+    
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack {
                 CustomerHomeView()
             }
@@ -117,6 +125,7 @@ struct CustomerMainTabView: View {
                 Image(systemName: "house.fill")
                 Text("Home")
             }
+            .tag(0)
 
             NavigationStack {
                 CustomerOrdersView()
@@ -125,6 +134,7 @@ struct CustomerMainTabView: View {
                 Image(systemName: "waveform.path.ecg")
                 Text("Orders")
             }
+            .tag(1)
 
             NavigationStack {
                 CustomerExploreView()
@@ -133,6 +143,7 @@ struct CustomerMainTabView: View {
                 Image(systemName: "building.2.fill")
                 Text("Shop")
             }
+            .tag(2)
 
             NavigationStack {
                 CustomerAccountView()
@@ -141,6 +152,7 @@ struct CustomerMainTabView: View {
                 Image(systemName: "person.crop.circle.fill")
                 Text("Account")
             }
+            .tag(3)
         }
         .tint(.primary)
     }
@@ -162,10 +174,112 @@ struct CustomerHomeView: View {
 
     @State private var pickupMode: PickupMode = .asap
     @State private var scheduledDate: Date = Date()
+    
+    // Location-related state
+    @State private var isRequestingLocation: Bool = false
+    @State private var showLocationRetry: Bool = false
+    @State private var locationErrorMessage: String?
+    
+    // Search-related state
+    @State private var searchResults: [SearchResult] = []
+    @State private var showSearchResults: Bool = false
+    @State private var isSearching: Bool = false
+    
+    // Quick action navigation/sheet state
+    @State private var navigateToOrders: Bool = false
+    @State private var navigateToSupport: Bool = false
+    @State private var navigateToPromos: Bool = false
+    @State private var showPaymentSheet: Bool = false
+    @State private var showNotificationsSheet: Bool = false
+    @State private var showOrderFlow: Bool = false
 
     enum PickupMode: String, CaseIterable {
         case asap = "ASAP"
         case later = "Later"
+    }
+    
+    // MARK: - Search Model
+    
+    struct SearchResult: Identifiable {
+        let id = UUID()
+        let title: String
+        let subtitle: String?
+        let icon: String
+        let category: SearchCategory
+        let action: () -> Void
+        
+        enum SearchCategory: String {
+            case retailer = "Retailers"
+            case helpTopic = "Help Topics"
+            case quickAction = "Quick Actions"
+        }
+    }
+    
+    // Search data source
+    private var allSearchableItems: [SearchResult] {
+        var items: [SearchResult] = []
+        
+        // Retailers
+        for name in retailerNames {
+            items.append(SearchResult(
+                title: name,
+                subtitle: "Browse \(name) products",
+                icon: "bag.fill",
+                category: .retailer,
+                action: {
+                    // Navigate to retailer
+                    print("Navigate to \(name)")
+                }
+            ))
+        }
+        
+        // Help Topics
+        let helpTopics = [
+            ("How to place an order", "Step-by-step guide", "questionmark.circle.fill"),
+            ("Track my laundry", "Real-time tracking", "location.viewfinder"),
+            ("Pricing information", "See our rates", "dollarsign.circle.fill"),
+            ("Delivery areas", "Check if we serve your area", "map.fill"),
+            ("Account settings", "Manage your profile", "person.crop.circle.fill"),
+            ("Payment methods", "Add or update cards", "creditcard.fill"),
+            ("Cancel order", "Cancel or modify orders", "xmark.circle.fill"),
+            ("Contact support", "Get help from our team", "bubble.left.and.bubble.right.fill")
+        ]
+        
+        for (title, subtitle, icon) in helpTopics {
+            items.append(SearchResult(
+                title: title,
+                subtitle: subtitle,
+                icon: icon,
+                category: .helpTopic,
+                action: {
+                    print("Help: \(title)")
+                }
+            ))
+        }
+        
+        // Quick Actions
+        let quickActions = [
+            ("Start laundry order", "Begin new pickup", "washer"),
+            ("Reorder last order", "Repeat previous order", "arrow.clockwise"),
+            ("Schedule pickup", "Set future pickup time", "calendar"),
+            ("View all orders", "See order history", "list.bullet"),
+            ("Chat with support", "Instant help", "message.fill"),
+            ("Add promo code", "Save on your order", "tag.fill")
+        ]
+        
+        for (title, subtitle, icon) in quickActions {
+            items.append(SearchResult(
+                title: title,
+                subtitle: subtitle,
+                icon: icon,
+                category: .quickAction,
+                action: {
+                    print("Action: \(title)")
+                }
+            ))
+        }
+        
+        return items
     }
 
     // Names-only tiles with additional row
@@ -222,7 +336,35 @@ struct CustomerHomeView: View {
         }
         .background(AppTheme.softBG.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                // Empty toolbar to remove title while keeping navigation bar visible
+                Text("")
+            }
+        }
+        .navigationDestination(isPresented: $navigateToOrders) {
+            CustomerOrdersView(initialSegment: .active)
+        }
+        .navigationDestination(isPresented: $navigateToSupport) {
+            SupportTicketsView()
+        }
+        .navigationDestination(isPresented: $navigateToPromos) {
+            PromoCodesView()
+        }
+        .sheet(isPresented: $showPaymentSheet) {
+            PaymentMethodsSheet()
+        }
+        .sheet(isPresented: $showNotificationsSheet) {
+            NotificationSettingsSheet()
+        }
+        .sheet(isPresented: $showOrderFlow) {
+            OrderFlowView(
+                bagCount: $bagCount,
+                pickupMode: $pickupMode,
+                scheduledDate: $scheduledDate,
+                estimatedCost: estimatedCost
+            )
+        }
         .task {
             switch locationService.status {
             case .notDetermined:
@@ -279,7 +421,40 @@ struct CustomerHomeView: View {
                 availabilityStatusSmall
             }
 
-            SearchBarLarge(text: $searchTextHome, placeholder: "Search retailers, items, or help")
+            // Search bar with overlay
+            ZStack(alignment: .top) {
+                SearchBarLarge(
+                    text: $searchTextHome,
+                    placeholder: "Search retailers, items, or help",
+                    isSearching: $isSearching
+                )
+                .onChange(of: searchTextHome) { oldValue, newValue in
+                    performSearch(query: newValue)
+                }
+                .onChange(of: isSearching) { oldValue, newValue in
+                    if !newValue && searchTextHome.isEmpty {
+                        withAnimation {
+                            showSearchResults = false
+                        }
+                    }
+                }
+                
+                // Search results overlay
+                if showSearchResults && !searchResults.isEmpty {
+                    SearchResultsOverlay(
+                        results: searchResults,
+                        onDismiss: {
+                            withAnimation {
+                                showSearchResults = false
+                                searchTextHome = ""
+                                isSearching = false
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
+                }
+            }
         }
         .padding(16)
         .background(
@@ -294,52 +469,182 @@ struct CustomerHomeView: View {
         Group {
             switch locationService.status {
             case .notDetermined:
-                Pill(background: Color.white.opacity(0.15)) {
+                // Prominent "Enable Location" button with animation
+                Button {
+                    requestLocationWithFeedback()
+                } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "location.fill")
-                            .foregroundColor(.white)
-                        Text("Enable")
+                        if isRequestingLocation {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.white)
+                                .symbolEffect(.bounce, value: isRequestingLocation)
+                        }
+                        Text(isRequestingLocation ? "Requesting..." : "Enable")
                             .foregroundColor(.white)
                             .font(.caption).bold()
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.blue, Color.blue.opacity(0.8)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: Capsule()
+                    )
+                    .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                    .scaleEffect(isRequestingLocation ? 0.95 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isRequestingLocation)
                 }
-                .onTapGesture { locationService.requestAuthorization() }
+                .buttonStyle(.plain)
+                .disabled(isRequestingLocation)
+                
             case .restricted, .denied:
-                Pill(background: Color.white.opacity(0.15)) {
+                // Show error state with retry option
+                Pill(background: Color.orange.opacity(0.15)) {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.yellow)
+                            .foregroundColor(.orange)
                         Text("Off")
-                            .foregroundColor(.white)
+                            .foregroundColor(.orange)
                             .font(.caption).bold()
+                        
+                        if showLocationRetry {
+                            Button {
+                                openSettings()
+                            } label: {
+                                Text("Settings")
+                                    .font(.caption2).bold()
+                                    .foregroundColor(.orange)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
+                                    .background(Color.orange.opacity(0.2), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        withAnimation(.spring()) {
+                            showLocationRetry = true
+                        }
+                    }
+                }
+                
             case .authorized:
                 if let isIn = locationService.isInServiceArea {
                     if isIn {
-                        Pill(background: Color.white.opacity(0.15)) {
+                        // Show city name when available
+                        Pill(background: Color.green.opacity(0.15)) {
                             HStack(spacing: 6) {
-                                Image(systemName: "checkmark.circle.fill").foregroundColor(.white)
-                                Text("Available").foregroundColor(.white).font(.caption).bold()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .symbolEffect(.pulse, value: locationService.locality)
+                                
+                                if let city = locationService.locality {
+                                    Text(city)
+                                        .foregroundColor(.green)
+                                        .font(.caption).bold()
+                                        .transition(.scale.combined(with: .opacity))
+                                } else {
+                                    Text("Available")
+                                        .foregroundColor(.green)
+                                        .font(.caption).bold()
+                                }
                             }
                         }
+                        .animation(.spring(), value: locationService.locality)
+                        
                     } else {
-                        Pill(background: Color.white.opacity(0.15)) {
+                        // Not in service area - show retry
+                        Pill(background: Color.orange.opacity(0.15)) {
                             HStack(spacing: 6) {
-                                Image(systemName: "xmark.circle.fill").foregroundColor(.white)
-                                Text("Coming soon").foregroundColor(.white).font(.caption).bold()
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.orange)
+                                
+                                if let city = locationService.locality {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(city)
+                                            .foregroundColor(.orange)
+                                            .font(.caption2).bold()
+                                        Text("Coming soon")
+                                            .foregroundColor(.orange.opacity(0.8))
+                                            .font(.caption2)
+                                    }
+                                } else {
+                                    Text("Coming soon")
+                                        .foregroundColor(.orange)
+                                        .font(.caption).bold()
+                                }
                             }
                         }
                     }
                 } else {
+                    // Still determining service area
                     Pill(background: Color.white.opacity(0.15)) {
                         HStack(spacing: 6) {
-                            ProgressView().tint(.white)
-                            Text("Checking").foregroundColor(.white).font(.caption).bold()
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                            Text("Checking...")
+                                .foregroundColor(.white)
+                                .font(.caption).bold()
                         }
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - Location Helper Methods
+    
+    private func requestLocationWithFeedback() {
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        withAnimation {
+            isRequestingLocation = true
+        }
+        
+        // Request authorization
+        locationService.requestAuthorization()
+        
+        // Monitor for status change
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
+            await MainActor.run {
+                withAnimation {
+                    isRequestingLocation = false
+                }
+                
+                // Success haptic if authorized
+                if locationService.status == .authorized {
+                    let successGenerator = UINotificationFeedbackGenerator()
+                    successGenerator.notificationOccurred(.success)
+                } else if locationService.status == .denied || locationService.status == .restricted {
+                    let errorGenerator = UINotificationFeedbackGenerator()
+                    errorGenerator.notificationOccurred(.error)
+                    showLocationRetry = true
+                }
+            }
+        }
+    }
+    
+    private func openSettings() {
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
         }
     }
 
@@ -508,7 +813,7 @@ struct CustomerHomeView: View {
 
                 ZStack(alignment: .topTrailing) {
                     Button {
-                        // Start order flow
+                        showOrderFlow = true
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "bag.fill")
@@ -559,11 +864,21 @@ struct CustomerHomeView: View {
     private var quickActionsChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ActionChip(icon: "location.viewfinder", title: "Track Order")
-                ActionChip(icon: "bubble.left.and.bubble.right.fill", title: "Chat Support", tint: .green)
-                ActionChip(icon: "creditcard.fill", title: "Quick Pay", tint: .purple)
-                ActionChip(icon: "bell.fill", title: "Notifications", tint: .orange)
-                ActionChip(icon: "tag.fill", title: "Promos", tint: .pink)
+                ActionChip(icon: "location.viewfinder", title: "Track Order") {
+                    navigateToOrders = true
+                }
+                ActionChip(icon: "bubble.left.and.bubble.right.fill", title: "Chat Support", tint: .green) {
+                    navigateToSupport = true
+                }
+                ActionChip(icon: "creditcard.fill", title: "Quick Pay", tint: .purple) {
+                    showPaymentSheet = true
+                }
+                ActionChip(icon: "bell.fill", title: "Notifications", tint: .orange) {
+                    showNotificationsSheet = true
+                }
+                ActionChip(icon: "tag.fill", title: "Promos", tint: .pink) {
+                    navigateToPromos = true
+                }
             }
             .padding(.horizontal, 2)
         }
@@ -813,6 +1128,31 @@ struct CustomerHomeView: View {
         }
     }
 
+    // MARK: - Search Methods
+    
+    private func performSearch(query: String) {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedQuery.isEmpty else {
+            withAnimation {
+                searchResults = []
+                showSearchResults = false
+            }
+            return
+        }
+        
+        // Filter searchable items based on query
+        let filtered = allSearchableItems.filter { item in
+            item.title.localizedCaseInsensitiveContains(trimmedQuery) ||
+            (item.subtitle?.localizedCaseInsensitiveContains(trimmedQuery) ?? false)
+        }
+        
+        withAnimation {
+            searchResults = filtered
+            showSearchResults = !filtered.isEmpty
+        }
+    }
+
     private func updateEstimate() {
         estimatedCost = Double(7 + max(0, bagCount - 1) * 6)
     }
@@ -886,27 +1226,31 @@ private struct ActionChip: View {
     var icon: String
     var title: String
     var tint: Color = AppTheme.brandBlue
+    var action: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(tint)
-                .frame(width: 24, height: 24)
-                .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.primary)
-                .lineLimit(1)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(tint)
+                    .frame(width: 24, height: 24)
+                    .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .shadow(color: AppTheme.shadow, radius: 6, x: 0, y: 3)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-        )
-        .shadow(color: AppTheme.shadow, radius: 6, x: 0, y: 3)
+        .buttonStyle(.plain)
     }
 }
 
@@ -1034,6 +1378,8 @@ private struct SavingsMetricCard: View {
 private struct SearchBarLarge: View {
     @Binding var text: String
     var placeholder: String
+    @Binding var isSearching: Bool
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1042,14 +1388,167 @@ private struct SearchBarLarge: View {
             TextField(placeholder, text: $text)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+                .focused($isFocused)
+                .onChange(of: isFocused) { oldValue, newValue in
+                    isSearching = newValue
+                }
+            
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    isFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 12)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+                .stroke(isFocused ? AppTheme.brandBlue : Color.white.opacity(0.20), lineWidth: isFocused ? 2 : 1)
         )
+        .animation(.spring(response: 0.3), value: isFocused)
+        .animation(.spring(response: 0.3), value: text.isEmpty)
+    }
+}
+
+// MARK: - Search Results Overlay
+
+private struct SearchResultsOverlay: View {
+    let results: [CustomerHomeView.SearchResult]
+    let onDismiss: () -> Void
+    
+    // Group results by category
+    private var groupedResults: [(category: CustomerHomeView.SearchResult.SearchCategory, items: [CustomerHomeView.SearchResult])] {
+        let categories: [CustomerHomeView.SearchResult.SearchCategory] = [.quickAction, .retailer, .helpTopic]
+        return categories.compactMap { category in
+            let items = results.filter { $0.category == category }
+            return items.isEmpty ? nil : (category, items)
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Backdrop/dimmer
+            Color.black.opacity(0.001)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onTapGesture {
+                    onDismiss()
+                }
+            
+            // Results container
+            VStack(alignment: .leading, spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(groupedResults, id: \.category.rawValue) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Category header
+                                HStack {
+                                    Text(group.category.rawValue)
+                                        .font(.caption).bold()
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(group.items.count)")
+                                        .font(.caption2).bold()
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, group.category == groupedResults.first?.category ? 4 : 0)
+                                
+                                // Results in this category
+                                ForEach(group.items) { result in
+                                    SearchResultRow(result: result) {
+                                        result.action()
+                                        onDismiss()
+                                    }
+                                }
+                            }
+                            
+                            if group.category != groupedResults.last?.category {
+                                Divider()
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 12)
+                }
+                .frame(maxHeight: 400)
+            }
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.15), radius: 20, x: 0, y: 8)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct SearchResultRow: View {
+    let result: CustomerHomeView.SearchResult
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                // Icon
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(iconColor.opacity(0.12))
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Image(systemName: result.icon)
+                            .foregroundColor(iconColor)
+                    )
+                
+                // Title and subtitle
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.title)
+                        .font(.subheadline).bold()
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    
+                    if let subtitle = result.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                
+                Spacer()
+                
+                // Arrow indicator
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            Color.secondary.opacity(0.05)
+                .opacity(0) // Invisible by default, shows on hover
+        )
+    }
+    
+    private var iconColor: Color {
+        switch result.category {
+        case .retailer:
+            return .blue
+        case .helpTopic:
+            return .orange
+        case .quickAction:
+            return .green
+        }
     }
 }
 
@@ -1125,15 +1624,23 @@ struct CustomerOrdersView: View {
         }
     }
 
+    @AppStorage("selectedOrderSegment") private var persistedSegment: String = Segment.active.rawValue
     @State private var segment: Segment = .active
     @State private var search: String = ""
     @State private var showFilters: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var isRefreshing: Bool = false
 
     enum Segment: String, CaseIterable, Identifiable {
         case active = "Active"
         case scheduled = "Scheduled"
         case completed = "Completed"
         var id: String { rawValue }
+    }
+    
+    // Allow initializing with a specific segment
+    init(initialSegment: Segment = .active) {
+        _segment = State(initialValue: initialSegment)
     }
 
     @State private var orders: [Order] = [
@@ -1161,6 +1668,20 @@ struct CustomerOrdersView: View {
             || order.date.localizedCaseInsensitiveContains(q)
         }
     }
+    
+    // Badge counts for each segment
+    private func badgeCount(for segment: Segment) -> Int {
+        orders.filter { order in
+            switch segment {
+            case .active:
+                return order.status == .inProgress
+            case .scheduled:
+                return order.status == .scheduled
+            case .completed:
+                return order.status == .delivered || order.status == .canceled
+            }
+        }.count
+    }
 
     var body: some View {
         ScrollView {
@@ -1177,9 +1698,12 @@ struct CustomerOrdersView: View {
                             .font(.title3).bold()
                         Spacer()
                     }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if filtered.isEmpty {
+                if isLoading {
+                    loadingState
+                } else if filtered.isEmpty {
                     emptyState
                 } else {
                     VStack(spacing: 12) {
@@ -1194,16 +1718,25 @@ struct CustomerOrdersView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
                         }
                     }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: segment)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: filtered.map { $0.id })
         }
         .background(AppTheme.softBG.ignoresSafeArea())
         .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await refreshOrders()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -1212,6 +1745,12 @@ struct CustomerOrdersView: View {
                     Image(systemName: "slider.horizontal.3")
                 }
                 .accessibilityLabel("Filters")
+            }
+        }
+        .onAppear {
+            // Restore persisted segment on first appear
+            if let persistedSeg = Segment(rawValue: persistedSegment) {
+                segment = persistedSeg
             }
         }
     }
@@ -1228,17 +1767,41 @@ struct CustomerOrdersView: View {
         HStack(spacing: 8) {
             ForEach(Segment.allCases) { seg in
                 Button {
-                    segment = seg
+                    // Haptic feedback on segment change
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        segment = seg
+                        persistedSegment = seg.rawValue
+                    }
                 } label: {
-                    Text(seg.rawValue)
-                        .font(.subheadline.bold())
-                        .foregroundColor(segment == seg ? .white : .primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(segment == seg ? Color.black : Color.clear, in: Capsule())
-                        .overlay(
-                            Capsule().stroke(segment == seg ? Color.black : Color.secondary.opacity(0.35), lineWidth: 1)
-                        )
+                    HStack(spacing: 6) {
+                        Text(seg.rawValue)
+                            .font(.subheadline.bold())
+                        
+                        // Badge count
+                        let count = badgeCount(for: seg)
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.caption2.bold())
+                                .foregroundColor(segment == seg ? AppTheme.brandBlue : .white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    segment == seg ? Color.white : AppTheme.brandBlue,
+                                    in: Capsule()
+                                )
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .foregroundColor(segment == seg ? .white : .primary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(segment == seg ? Color.black : Color.clear, in: Capsule())
+                    .overlay(
+                        Capsule().stroke(segment == seg ? Color.black : Color.secondary.opacity(0.35), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -1246,6 +1809,7 @@ struct CustomerOrdersView: View {
         .frame(maxWidth: .infinity)
         .padding(8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: segment)
     }
 
     private var searchBar: some View {
@@ -1286,6 +1850,58 @@ struct CustomerOrdersView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+        .transition(.scale.combined(with: .opacity))
+    }
+    
+    private var loadingState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: AppTheme.brandBlue))
+                .scaleEffect(1.5)
+            
+            Text("Loading orders...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
+        .transition(.opacity)
+    }
+    
+    // Simulate fetching orders from network
+    @MainActor
+    private func refreshOrders() async {
+        isRefreshing = true
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        // Simulate network delay
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+        
+        // In a real app, you would fetch orders from your backend here
+        // For now, we'll just reload the existing orders to simulate
+        
+        isRefreshing = false
+        
+        // Success haptic
+        let successGenerator = UINotificationFeedbackGenerator()
+        successGenerator.notificationOccurred(.success)
+    }
+    
+    // Simulate initial loading (optional - can be triggered on first appear)
+    private func loadOrders() async {
+        isLoading = true
+        
+        // Simulate network delay
+        try? await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds
+        
+        await MainActor.run {
+            withAnimation {
+                isLoading = false
+            }
+        }
     }
 
     // MARK: - Subviews
@@ -1413,83 +2029,300 @@ struct CustomerOrdersView: View {
 
     private struct InProgressOrderCard: View {
         let order: Order
+        
+        // State for real-time updates
+        @State private var currentStepIndex: Int = 3 // Start at "Washing"
+        @State private var stepProgress: Double = 0.0
+        @State private var remainingMinutes: Int = 45
+        @State private var showStepChangeAlert: Bool = false
+        @State private var lastStepChange: String = ""
+        
+        // Timer for updates
+        @State private var timer: Timer?
 
-        private let steps: [Step] = [
-            .init(title: "Order Placed", time: "1:30 PM", state: .done),
-            .init(title: "Driver Assigned", time: "1:45 PM", state: .done),
-            .init(title: "Pickup Complete", time: "2:00 PM", state: .done),
-            .init(title: "Washing", time: "2:15 PM", state: .current),
-            .init(title: "Drying", time: "2:45 PM", state: .next),
-            .init(title: "Folding", time: "3:15 PM", state: .next),
-            .init(title: "Out for Delivery", time: "3:30 PM", state: .next),
-            .init(title: "Delivered", time: "4:00 PM", state: .next)
-        ]
+        private var steps: [Step] {
+            [
+                .init(title: "Order Placed", time: "1:30 PM", state: currentStepIndex > 0 ? .done : (currentStepIndex == 0 ? .current : .next)),
+                .init(title: "Driver Assigned", time: "1:45 PM", state: currentStepIndex > 1 ? .done : (currentStepIndex == 1 ? .current : .next)),
+                .init(title: "Pickup Complete", time: "2:00 PM", state: currentStepIndex > 2 ? .done : (currentStepIndex == 2 ? .current : .next)),
+                .init(title: "Washing", time: "2:15 PM", state: currentStepIndex > 3 ? .done : (currentStepIndex == 3 ? .current : .next)),
+                .init(title: "Drying", time: "2:45 PM", state: currentStepIndex > 4 ? .done : (currentStepIndex == 4 ? .current : .next)),
+                .init(title: "Folding", time: "3:15 PM", state: currentStepIndex > 5 ? .done : (currentStepIndex == 5 ? .current : .next)),
+                .init(title: "Out for Delivery", time: "3:30 PM", state: currentStepIndex > 6 ? .done : (currentStepIndex == 6 ? .current : .next)),
+                .init(title: "Delivered", time: "4:00 PM", state: currentStepIndex > 7 ? .done : (currentStepIndex == 7 ? .current : .next))
+            ]
+        }
+        
+        private var currentStep: Step {
+            steps[min(currentStepIndex, steps.count - 1)]
+        }
+        
+        private var overallProgress: Double {
+            let baseProgress = Double(currentStepIndex) / Double(steps.count)
+            let stepIncrement = stepProgress / Double(steps.count)
+            return min(baseProgress + stepIncrement, 1.0)
+        }
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Laundry Pickup")
-                        .font(.headline)
-                    BadgePill(text: order.title, tint: order.tint)
-                    Spacer()
-                    Text("15 min remaining")
-                        .font(.footnote).bold()
-                        .foregroundColor(.orange)
-                }
-
-                HStack(spacing: 8) {
-                    Circle().fill(Color.green).frame(width: 8, height: 8)
-                    Text("Washing")
-                        .font(.subheadline).bold()
-                        .foregroundColor(.green)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    InfoRowSmall(icon: "mappin.and.ellipse", text: "123 Main St, Irvine, CA")
-                    InfoRowSmall(icon: "cube.box.fill", text: "\(order.bags) bag\(order.bags == 1 ? "" : "s")")
-                    InfoRowSmall(icon: "clock", text: "Picked up at 2:15 PM")
-                }
-
-                Divider()
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Driver: Mike Johnson")
-                            .font(.subheadline).bold()
+            ZStack {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Laundry Pickup")
+                            .font(.headline)
+                        BadgePill(text: order.title, tint: order.tint)
+                        Spacer()
+                        
+                        // Real-time countdown
                         HStack(spacing: 4) {
-                            Image(systemName: "star.fill").foregroundColor(.orange)
-                            Text("4.9").foregroundColor(.secondary)
+                            Image(systemName: "clock.fill")
+                                .foregroundColor(.orange)
+                            Text("\(remainingMinutes) min remaining")
+                                .font(.footnote).bold()
+                                .foregroundColor(.orange)
                         }
-                        .font(.subheadline)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.12), in: Capsule())
                     }
 
-                    Spacer()
-
+                    // Current step with pulse animation
                     HStack(spacing: 8) {
-                        SoftActionCapsule(icon: "location.viewfinder", title: "Track", tint: .blue)
-                        SoftActionCapsule(icon: "bubble.left.and.bubble.right.fill", title: "Chat", tint: .green)
-                        SoftActionCapsule(icon: "star", title: "Rate", tint: .orange)
+                        ZStack {
+                            Circle()
+                                .fill(stepColor(for: currentStep.state))
+                                .frame(width: 12, height: 12)
+                                .scaleEffect(currentStep.state == .current ? 1.2 : 1.0)
+                                .animation(
+                                    currentStep.state == .current ?
+                                    Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true) :
+                                        .default,
+                                    value: currentStep.state == .current
+                                )
+                            
+                            if currentStep.state == .current {
+                                Circle()
+                                    .stroke(stepColor(for: currentStep.state), lineWidth: 2)
+                                    .frame(width: 20, height: 20)
+                                    .scaleEffect(1.5)
+                                    .opacity(0.5)
+                                    .animation(
+                                        Animation.easeOut(duration: 1.0).repeatForever(autoreverses: false),
+                                        value: currentStep.state == .current
+                                    )
+                            }
+                        }
+                        
+                        Text(currentStep.title)
+                            .font(.subheadline).bold()
+                            .foregroundColor(stepColor(for: currentStep.state))
+                        
+                        Spacer()
+                        
+                        // Step progress indicator
+                        Text("\(currentStepIndex + 1)/\(steps.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.secondary.opacity(0.12), in: Capsule())
                     }
+                    
+                    // Overall progress bar
+                    VStack(spacing: 4) {
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.secondary.opacity(0.2))
+                                    .frame(height: 6)
+                                
+                                Capsule()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: geometry.size.width * overallProgress, height: 6)
+                                    .animation(.easeInOut(duration: 0.5), value: overallProgress)
+                            }
+                        }
+                        .frame(height: 6)
+                        
+                        HStack {
+                            Text("\(Int(overallProgress * 100))% Complete")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("Step \(min(currentStepIndex + 1, steps.count)) of \(steps.count)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        InfoRowSmall(icon: "mappin.and.ellipse", text: "123 Main St, Irvine, CA")
+                        InfoRowSmall(icon: "cube.box.fill", text: "\(order.bags) bag\(order.bags == 1 ? "" : "s")")
+                        InfoRowSmall(icon: "clock", text: "Picked up at 2:15 PM")
+                    }
+
+                    Divider()
+
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Driver: Mike Johnson")
+                                .font(.subheadline).bold()
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill").foregroundColor(.orange)
+                                Text("4.9").foregroundColor(.secondary)
+                            }
+                            .font(.subheadline)
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 8) {
+                            SoftActionCapsule(icon: "location.viewfinder", title: "Track", tint: .blue)
+                            SoftActionCapsule(icon: "bubble.left.and.bubble.right.fill", title: "Chat", tint: .green)
+                            SoftActionCapsule(icon: "star", title: "Rate", tint: .orange)
+                        }
+                    }
+
+                    Divider()
+
+                    Text("Order Progress")
+                        .font(.headline)
+
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                                AnimatedProgressTimelineRow(
+                                    step: step,
+                                    isLast: index == steps.count - 1,
+                                    isCurrentlyActive: index == currentStepIndex,
+                                    stepProgress: stepProgress
+                                )
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 300)
                 }
-
-                Divider()
-
-                Text("Order Progress")
-                    .font(.headline)
-
-                VStack(spacing: 12) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                        ProgressTimelineRow(step: step, isLast: index == steps.count - 1)
+                .padding(14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: AppTheme.shadow, radius: 10, x: 0, y: 6)
+                
+                // Push notification-style alert
+                if showStepChangeAlert {
+                    VStack {
+                        StepChangeNotification(stepName: lastStepChange)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        Spacer()
+                    }
+                    .zIndex(1)
+                }
+            }
+            .onAppear {
+                startProgressSimulation()
+            }
+            .onDisappear {
+                stopProgressSimulation()
+            }
+        }
+        
+        // MARK: - Helper Methods
+        
+        private func startProgressSimulation() {
+            // Start timer that updates every 30 seconds
+            timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
+                updateProgress()
+            }
+            
+            // Also update every second for countdown
+            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { countdownTimer in
+                if remainingMinutes > 0 {
+                    // Update countdown every 60 seconds
+                    if Int(Date().timeIntervalSince1970) % 60 == 0 {
+                        withAnimation {
+                            remainingMinutes = max(0, remainingMinutes - 1)
+                        }
+                    }
+                } else {
+                    countdownTimer.invalidate()
+                }
+            }
+        }
+        
+        private func stopProgressSimulation() {
+            timer?.invalidate()
+            timer = nil
+        }
+        
+        private func updateProgress() {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                // Increment step progress
+                stepProgress += 0.33 // Progress through current step
+                
+                // Check if we should move to next step
+                if stepProgress >= 1.0 {
+                    stepProgress = 0.0
+                    
+                    if currentStepIndex < steps.count - 1 {
+                        let oldStepIndex = currentStepIndex
+                        currentStepIndex += 1
+                        
+                        // Show notification for step change
+                        lastStepChange = steps[currentStepIndex].title
+                        showStepChangeNotification()
+                        
+                        // Haptic feedback
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                        
+                        // Update ETA based on step
+                        updateETA(for: currentStepIndex)
                     }
                 }
             }
-            .padding(14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-            )
-            .shadow(color: AppTheme.shadow, radius: 10, x: 0, y: 6)
+        }
+        
+        private func updateETA(for stepIndex: Int) {
+            // Simulate ETA updates based on step
+            switch stepIndex {
+            case 0: remainingMinutes = 150 // Order placed: 2.5 hours
+            case 1: remainingMinutes = 120 // Driver assigned: 2 hours
+            case 2: remainingMinutes = 90  // Pickup complete: 1.5 hours
+            case 3: remainingMinutes = 60  // Washing: 1 hour
+            case 4: remainingMinutes = 45  // Drying: 45 min
+            case 5: remainingMinutes = 30  // Folding: 30 min
+            case 6: remainingMinutes = 15  // Out for delivery: 15 min
+            case 7: remainingMinutes = 0   // Delivered
+            default: break
+            }
+        }
+        
+        private func showStepChangeNotification() {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                showStepChangeAlert = true
+            }
+            
+            // Auto-dismiss after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    showStepChangeAlert = false
+                }
+            }
+        }
+        
+        private func stepColor(for state: Step.State) -> Color {
+            switch state {
+            case .done: return .green
+            case .current: return .blue
+            case .next: return Color.secondary.opacity(0.3)
+            }
         }
 
         // MARK: - Subviews for the in-progress card
@@ -1525,25 +2358,38 @@ struct CustomerOrdersView: View {
             }
         }
 
-        private struct ProgressTimelineRow: View {
+        private struct AnimatedProgressTimelineRow: View {
             let step: Step
             let isLast: Bool
+            let isCurrentlyActive: Bool
+            let stepProgress: Double
+            
             var body: some View {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(spacing: 4) {
                         bullet
                         if !isLast {
                             Rectangle()
-                                .fill(Color.secondary.opacity(0.25))
+                                .fill(lineColor)
                                 .frame(width: 2, height: 24)
                         }
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(step.title)
-                            .font(.subheadline)
-                            .fontWeight(step.state == .current ? .semibold : .regular)
-                            .foregroundColor(step.state == .current ? .blue : .primary)
+                        HStack {
+                            Text(step.title)
+                                .font(.subheadline)
+                                .fontWeight(step.state == .current ? .semibold : .regular)
+                                .foregroundColor(step.state == .current ? .blue : .primary)
+                            
+                            if step.state == .current && stepProgress > 0 {
+                                ProgressView(value: stepProgress, total: 1.0)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                                    .frame(width: 50)
+                                    .scaleEffect(y: 0.5)
+                            }
+                        }
+                        
                         Text(step.time)
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -1566,11 +2412,69 @@ struct CustomerOrdersView: View {
                         ZStack {
                             Circle().stroke(Color.blue, lineWidth: 3).frame(width: 16, height: 16)
                             Circle().fill(Color.blue).frame(width: 6, height: 6)
+                            
+                            if isCurrentlyActive {
+                                Circle()
+                                    .stroke(Color.blue, lineWidth: 2)
+                                    .frame(width: 24, height: 24)
+                                    .scaleEffect(1.5)
+                                    .opacity(0.3)
+                                    .animation(
+                                        Animation.easeOut(duration: 1.5).repeatForever(autoreverses: false),
+                                        value: isCurrentlyActive
+                                    )
+                            }
                         }
                     case .next:
                         Circle().fill(Color.secondary.opacity(0.25)).frame(width: 16, height: 16)
                     }
                 }
+            }
+            
+            private var lineColor: Color {
+                step.state == .done ? Color.green.opacity(0.5) : Color.secondary.opacity(0.25)
+            }
+        }
+        
+        // Push notification-style alert view
+        private struct StepChangeNotification: View {
+            let stepName: String
+            
+            var body: some View {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.brandBlue)
+                            .frame(width: 40, height: 40)
+                        
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.white)
+                            .font(.title3)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Order Updated")
+                            .font(.subheadline).bold()
+                        Text("Now: \(stepName)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+                .padding(12)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(AppTheme.brandBlue.opacity(0.3), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
         }
 
@@ -1586,6 +2490,32 @@ struct CustomerOrdersView: View {
 
 struct CustomerOrderDetailView: View {
     let order: CustomerOrdersView.Order
+    
+    // State for animations and interactions
+    @State private var timelineProgress: CGFloat = 0.0
+    @State private var showChatInterface: Bool = false
+    @State private var showCancelDialog: Bool = false
+    @State private var showReorderSheet: Bool = false
+    @State private var isCancelling: Bool = false
+    
+    // Mock driver location (Irvine, CA area)
+    @State private var driverLocation = CLLocationCoordinate2D(
+        latitude: 33.6846,
+        longitude: -117.8265
+    )
+    
+    // Mock customer location
+    @State private var customerLocation = CLLocationCoordinate2D(
+        latitude: 33.6900,
+        longitude: -117.8200
+    )
+    
+    @State private var mapRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 33.6873, longitude: -117.8232),
+        span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+    )
+    
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ScrollView {
@@ -1593,7 +2523,7 @@ struct CustomerOrderDetailView: View {
 
                 header
 
-                mapPreview
+                liveMapView
 
                 timeline
 
@@ -1604,6 +2534,29 @@ struct CustomerOrderDetailView: View {
         .background(AppTheme.softBG.ignoresSafeArea())
         .navigationTitle("Order Details")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showChatInterface) {
+            DriverChatInterface(order: order)
+        }
+        .sheet(isPresented: $showReorderSheet) {
+            ReorderSheet(order: order)
+        }
+        .alert("Cancel Order?", isPresented: $showCancelDialog) {
+            Button("Keep Order", role: .cancel) { }
+            Button("Cancel Order", role: .destructive) {
+                cancelOrder()
+            }
+        } message: {
+            Text("Are you sure you want to cancel this order? This action cannot be undone.")
+        }
+        .onAppear {
+            // Animate timeline progress based on order status
+            animateTimelineProgress()
+            
+            // Simulate driver movement if order is in progress
+            if order.status == .inProgress {
+                startDriverMovementSimulation()
+            }
+        }
     }
 
     private var header: some View {
@@ -1636,18 +2589,117 @@ struct CustomerOrderDetailView: View {
         .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
     }
 
-    private var mapPreview: some View {
-        RoundedRectangle(cornerRadius: 18)
-            .fill(Color(uiColor: .secondarySystemBackground))
-            .frame(height: 160)
-            .overlay(
-                VStack(spacing: 6) {
-                    Image(systemName: "map.fill").foregroundColor(.secondary)
-                    Text("Live map tracking")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+    private var liveMapView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Live Tracking", systemImage: "location.fill")
+                    .font(.headline)
+                Spacer()
+                if order.status == .inProgress {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                        Text("Driver en route")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.12), in: Capsule())
                 }
+            }
+            
+            Map(coordinateRegion: $mapRegion, annotationItems: mapAnnotations) { annotation in
+                MapAnnotation(coordinate: annotation.coordinate) {
+                    VStack(spacing: 4) {
+                        ZStack {
+                            Circle()
+                                .fill(annotation.annotationType == .driver ? Color.blue : Color.green)
+                                .frame(width: 36, height: 36)
+                                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                            
+                            Image(systemName: annotation.annotationType == .driver ? "car.fill" : "house.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        
+                        if order.status == .inProgress {
+                            Text(annotation.annotationType == .driver ? "Driver" : "You")
+                                .font(.caption2).bold()
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.7), in: Capsule())
+                        }
+                    }
+                }
+            }
+            .frame(height: 220)
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
             )
+            
+            if order.status == .inProgress {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Estimated Arrival")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(order.eta ?? "—")
+                            .font(.subheadline).bold()
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Distance")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("0.8 mi")
+                            .font(.subheadline).bold()
+                    }
+                }
+                .padding(12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(14)
+        .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+    }
+    
+    private var mapAnnotations: [OrderMapAnnotation] {
+        var annotations: [OrderMapAnnotation] = [
+            OrderMapAnnotation(
+                coordinate: customerLocation,
+                annotationType: .customer
+            )
+        ]
+        
+        if order.status == .inProgress {
+            annotations.append(
+                OrderMapAnnotation(
+                    coordinate: driverLocation,
+                    annotationType: .driver
+                )
+            )
+        }
+        
+        return annotations
+    }
+    
+    struct OrderMapAnnotation: Identifiable {
+        let id = UUID()
+        let coordinate: CLLocationCoordinate2D
+        let annotationType: AnnotationType
+        
+        enum AnnotationType {
+            case driver
+            case customer
+        }
     }
 
     private var timeline: some View {
@@ -1656,11 +2708,42 @@ struct CustomerOrderDetailView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 12) {
-                TimelineRow(title: "Order Placed", time: "2:05 PM", active: true)
-                TimelineRow(title: "Picked Up", time: "2:28 PM", active: true)
-                TimelineRow(title: "In Wash", time: "—", active: order.status == .inProgress)
-                TimelineRow(title: "En Route", time: "—", active: false)
-                TimelineRow(title: "Delivered", time: "—", active: false)
+                AnimatedTimelineRow(
+                    title: "Order Placed",
+                    time: "2:05 PM",
+                    active: true,
+                    progress: timelineProgress,
+                    step: 0
+                )
+                AnimatedTimelineRow(
+                    title: "Picked Up",
+                    time: "2:28 PM",
+                    active: true,
+                    progress: timelineProgress,
+                    step: 1
+                )
+                AnimatedTimelineRow(
+                    title: order.status == .inProgress ? "In Progress" : "In Wash",
+                    time: order.status == .inProgress ? "Now" : "—",
+                    active: order.status == .inProgress,
+                    progress: timelineProgress,
+                    step: 2
+                )
+                AnimatedTimelineRow(
+                    title: "En Route",
+                    time: "—",
+                    active: false,
+                    progress: timelineProgress,
+                    step: 3
+                )
+                AnimatedTimelineRow(
+                    title: "Delivered",
+                    time: "—",
+                    active: false,
+                    progress: timelineProgress,
+                    step: 4,
+                    isLast: true
+                )
             }
             .padding(14)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -1670,34 +2753,221 @@ struct CustomerOrderDetailView: View {
             )
         }
     }
+    
+    // Animated timeline row component
+    private struct AnimatedTimelineRow: View {
+        let title: String
+        let time: String
+        let active: Bool
+        let progress: CGFloat
+        let step: Int
+        var isLast: Bool = false
+        
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 4) {
+                    ZStack {
+                        Circle()
+                            .fill(bulletColor)
+                            .frame(width: 10, height: 10)
+                            .scaleEffect(active && shouldPulse ? 1.2 : 1.0)
+                            .animation(
+                                active && shouldPulse ?
+                                Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true) :
+                                    .default,
+                                value: active
+                            )
+                        
+                        if active && shouldPulse {
+                            Circle()
+                                .stroke(bulletColor, lineWidth: 2)
+                                .frame(width: 18, height: 18)
+                                .scaleEffect(active ? 1.3 : 1.0)
+                                .opacity(active ? 0.5 : 0)
+                                .animation(
+                                    Animation.easeOut(duration: 1.0).repeatForever(autoreverses: false),
+                                    value: active
+                                )
+                        }
+                    }
+                    
+                    if !isLast {
+                        Rectangle()
+                            .fill(lineColor)
+                            .frame(width: 2, height: 24)
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(title)
+                            .font(.subheadline).bold()
+                            .foregroundColor(active ? .primary : .secondary)
+                        
+                        if active && shouldPulse {
+                            PillLabel(text: "Active", color: .blue)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    
+                    Text(time)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+        }
+        
+        private var shouldPulse: Bool {
+            progress >= CGFloat(step) && progress < CGFloat(step + 1)
+        }
+        
+        private var bulletColor: Color {
+            if progress > CGFloat(step) {
+                return .green
+            } else if active {
+                return .blue
+            } else {
+                return Color.secondary.opacity(0.3)
+            }
+        }
+        
+        private var lineColor: Color {
+            progress > CGFloat(step) ? Color.green.opacity(0.5) : Color.secondary.opacity(0.25)
+        }
+    }
 
     private var actions: some View {
-        HStack(spacing: 12) {
-            Button {
-                // Track
-            } label: {
-                Label("Track", systemImage: "location.viewfinder")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
+        VStack(spacing: 12) {
+            // Primary actions
+            HStack(spacing: 12) {
+                Button {
+                    // Track on map
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                } label: {
+                    Label("Track", systemImage: "location.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
 
-            Button {
-                // Support
-            } label: {
-                Label("Contact Support", systemImage: "bubble.left.and.bubble.right.fill")
-                    .frame(maxWidth: .infinity)
+                if order.status == .inProgress {
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        showChatInterface = true
+                    } label: {
+                        Label("Contact Driver", systemImage: "message.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        // Support
+                    } label: {
+                        Label("Support", systemImage: "bubble.left.and.bubble.right.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
-            .buttonStyle(.bordered)
-
-            Button {
-                // Reorder
-            } label: {
-                Label("Reorder", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity)
+            .font(.subheadline)
+            
+            // Secondary actions
+            HStack(spacing: 12) {
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    showReorderSheet = true
+                } label: {
+                    Label("Reorder", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                
+                if order.status == .inProgress || order.status == .scheduled {
+                    Button(role: .destructive) {
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.warning)
+                        showCancelDialog = true
+                    } label: {
+                        Label("Cancel Order", systemImage: "xmark.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                }
             }
-            .buttonStyle(.bordered)
+            .font(.subheadline)
         }
         .padding(.top, 2)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func animateTimelineProgress() {
+        // Determine progress based on order status
+        let targetProgress: CGFloat = switch order.status {
+        case .inProgress:
+            2.5 // Currently in progress (between step 2 and 3)
+        case .scheduled:
+            0.5 // Scheduled but not started
+        case .delivered:
+            5.0 // Completed all steps
+        case .canceled:
+            1.0 // Stopped after pickup
+        }
+        
+        withAnimation(.easeInOut(duration: 1.5)) {
+            timelineProgress = targetProgress
+        }
+    }
+    
+    private func startDriverMovementSimulation() {
+        // Simulate driver moving toward customer
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
+            withAnimation(.easeInOut(duration: 2.0)) {
+                // Move driver slightly closer to customer
+                let latDiff = customerLocation.latitude - driverLocation.latitude
+                let lonDiff = customerLocation.longitude - driverLocation.longitude
+                
+                driverLocation.latitude += latDiff * 0.1
+                driverLocation.longitude += lonDiff * 0.1
+                
+                // Stop when close enough
+                if abs(latDiff) < 0.001 && abs(lonDiff) < 0.001 {
+                    timer.invalidate()
+                }
+            }
+        }
+    }
+    
+    private func cancelOrder() {
+        isCancelling = true
+        
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+        
+        // Simulate API call
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
+            await MainActor.run {
+                isCancelling = false
+                
+                // Success feedback
+                let successGenerator = UINotificationFeedbackGenerator()
+                successGenerator.notificationOccurred(.success)
+                
+                // Dismiss view
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    dismiss()
+                }
+            }
+        }
     }
 
     private var statusBadge: some View {
@@ -1712,38 +2982,366 @@ struct CustomerOrderDetailView: View {
             return AnyView(BadgePill(text: "Canceled", tint: .red))
         }
     }
+}
 
-    private struct TimelineRow: View {
-        let title: String
-        let time: String
-        let active: Bool
-        var body: some View {
-            HStack(alignment: .top, spacing: 12) {
-                VStack {
+// MARK: - Driver Chat Interface
+
+private struct DriverChatInterface: View {
+    let order: CustomerOrdersView.Order
+    @Environment(\.dismiss) private var dismiss
+    @State private var messageText: String = ""
+    @State private var messages: [ChatMessage] = [
+        .init(text: "Hi! I'm on my way to pick up your laundry.", sender: .driver, timestamp: Date().addingTimeInterval(-300)),
+        .init(text: "Great! About how long?", sender: .customer, timestamp: Date().addingTimeInterval(-240)),
+        .init(text: "About 10 minutes. I'll text when I arrive.", sender: .driver, timestamp: Date().addingTimeInterval(-180))
+    ]
+    
+    struct ChatMessage: Identifiable {
+        let id = UUID()
+        let text: String
+        let sender: Sender
+        let timestamp: Date
+        
+        enum Sender {
+            case driver
+            case customer
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Driver info header
+                HStack(spacing: 12) {
                     Circle()
-                        .fill(active ? Color.blue : Color.secondary.opacity(0.3))
-                        .frame(width: 10, height: 10)
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.25))
-                        .frame(width: 2, height: 24)
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 50, height: 50)
+                        .overlay(
+                            Image(systemName: "person.fill")
+                                .foregroundColor(.blue)
+                        )
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Mike Johnson")
+                            .font(.headline)
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .foregroundColor(.orange)
+                            Text("4.9")
+                                .foregroundColor(.secondary)
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+                            Text("Online")
+                                .foregroundColor(.green)
+                        }
+                        .font(.caption)
+                    }
+                    
+                    Spacer()
+                    
+                    Button {
+                        // Call driver
+                    } label: {
+                        Image(systemName: "phone.fill")
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.brandBlue, in: Circle())
+                    }
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(title)
-                            .font(.subheadline).bold()
-                        if active {
-                            PillLabel(text: "Active", color: .blue)
+                .padding()
+                .background(AppTheme.cardBG)
+                
+                Divider()
+                
+                // Messages
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            ChatBubble(message: message)
                         }
                     }
-                    Text(time)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    .padding()
                 }
-                Spacer()
+                
+                // Input
+                HStack(spacing: 12) {
+                    TextField("Type a message...", text: $messageText, axis: .vertical)
+                        .lineLimit(1...4)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    
+                    Button {
+                        sendMessage()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(messageText.isEmpty ? .secondary : AppTheme.brandBlue)
+                    }
+                    .disabled(messageText.isEmpty)
+                }
+                .padding()
+                .background(AppTheme.cardBG)
+            }
+            .navigationTitle("Chat with Driver")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func sendMessage() {
+        guard !messageText.isEmpty else { return }
+        
+        let newMessage = ChatMessage(
+            text: messageText,
+            sender: .customer,
+            timestamp: Date()
+        )
+        
+        withAnimation {
+            messages.append(newMessage)
+        }
+        
+        messageText = ""
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+    }
+}
+
+private struct ChatBubble: View {
+    let message: DriverChatInterface.ChatMessage
+    
+    var body: some View {
+        HStack {
+            if message.sender == .customer {
+                Spacer(minLength: 60)
+            }
+            
+            VStack(alignment: message.sender == .driver ? .leading : .trailing, spacing: 4) {
+                Text(message.text)
+                    .font(.subheadline)
+                    .foregroundColor(message.sender == .driver ? .primary : .white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        message.sender == .driver ?
+                        Color(uiColor: .secondarySystemBackground) :
+                        AppTheme.brandBlue,
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    )
+                
+                Text(timeString(from: message.timestamp))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+            }
+            
+            if message.sender == .driver {
+                Spacer(minLength: 60)
+            }
+        }
+    }
+    
+    private func timeString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Reorder Sheet
+
+private struct ReorderSheet: View {
+    let order: CustomerOrdersView.Order
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var bagCount: Int = 2
+    @State private var pickupMode: CustomerHomeView.PickupMode = .asap
+    @State private var scheduledDate: Date = Date()
+    @State private var showOrderFlow: Bool = false
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Order preview
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(AppTheme.brandBlue)
+                            Text("Reorder")
+                                .font(.title2).bold()
+                        }
+                        
+                        Text("This will create a new order with the same details as your previous order.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    
+                    // Order details
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Order Details")
+                            .font(.headline)
+                        
+                        VStack(spacing: 12) {
+                            HStack {
+                                Label("Previous Order", systemImage: "bag.fill")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(order.title)
+                                    .bold()
+                            }
+                            
+                            Divider()
+                            
+                            HStack {
+                                Label("Bags", systemImage: "cube.box.fill")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                
+                                HStack(spacing: 12) {
+                                    Button {
+                                        if bagCount > 1 { bagCount -= 1 }
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .foregroundColor(bagCount > 1 ? AppTheme.brandBlue : .secondary)
+                                    }
+                                    
+                                    Text("\(bagCount)")
+                                        .font(.headline)
+                                        .frame(minWidth: 30)
+                                    
+                                    Button {
+                                        bagCount += 1
+                                    } label: {
+                                        Image(systemName: "plus.circle.fill")
+                                            .foregroundColor(AppTheme.brandBlue)
+                                    }
+                                }
+                            }
+                            
+                            Divider()
+                            
+                            HStack {
+                                Label("Pickup", systemImage: "clock.fill")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                
+                                Picker("", selection: $pickupMode) {
+                                    ForEach(CustomerHomeView.PickupMode.allCases, id: \.self) { mode in
+                                        Text(mode.rawValue).tag(mode)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 150)
+                            }
+                            
+                            if pickupMode == .later {
+                                DatePicker(
+                                    "Schedule Time",
+                                    selection: $scheduledDate,
+                                    in: Date()...,
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                            }
+                        }
+                        .font(.subheadline)
+                    }
+                    .padding(16)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+                    
+                    // Estimated cost
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Estimated Total")
+                                .font(.headline)
+                            Spacer()
+                            Text("$\(7 + max(0, bagCount - 1) * 6)")
+                                .font(.title2).bold()
+                                .foregroundColor(AppTheme.brandBlue)
+                        }
+                        
+                        Text("Final price may vary based on actual weight")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .background(AppTheme.success.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    
+                    // Place order button
+                    Button {
+                        placeReorder()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Place Reorder")
+                                .font(.headline)
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            LinearGradient(
+                                colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding()
+            }
+            .background(AppTheme.softBG.ignoresSafeArea())
+            .navigationTitle("Reorder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            // Pre-fill with previous order details
+            bagCount = order.bags
+        }
+    }
+    
+    private func placeReorder() {
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        
+        // Simulate order placement
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            await MainActor.run {
+                dismiss()
             }
         }
     }
 }
+
+// Remove old TimelineRow - it's now AnimatedTimelineRow inside CustomerOrderDetailView
 
 // MARK: - Retail (formerly Explore)
 
@@ -1971,8 +3569,8 @@ struct CustomerExploreView: View {
             .padding(.bottom, 24)
         }
         .background(AppTheme.softBG.ignoresSafeArea())
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Shop")
+        .navigationBarTitleDisplayMode(.large)
     }
 
     // MARK: - Subviews
@@ -2191,7 +3789,7 @@ struct CustomerAccountView: View {
                 Toggle("Promotions", isOn: .constant(true))
             }
             Section("Help") {
-                NavigationLink("Support") { SupportTicketsView() }
+                NavigationLink("Support") { Text("Support placeholder") }
                 Button(role: .destructive) { } label: { Text("Log Out") }
             }
         }
@@ -2245,6 +3843,29 @@ struct DriverMainTabView: View {
             }
         }
         .tint(.primary)
+    }
+}
+
+// MARK: - Driver Feature Views (Stubs)
+
+struct JobMatchingView: View {
+    var body: some View {
+        Text("Job Matching View")
+            .navigationTitle("Jobs")
+    }
+}
+
+struct OrderIntakeView: View {
+    var body: some View {
+        Text("Order Intake View")
+            .navigationTitle("Orders")
+    }
+}
+
+struct OperationsDashboardView: View {
+    var body: some View {
+        Text("Operations Dashboard")
+            .navigationTitle("Operations")
     }
 }
 
@@ -2737,6 +4358,1130 @@ struct DriverAppView: View {
     }
 }
 
-#Preview("Driver Flow") {
-    DriverAppView()
+// MARK: - Quick Action Sheets
+
+struct PaymentMethodsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        Image(systemName: "creditcard.fill")
+                            .foregroundColor(.blue)
+                            .frame(width: 32, height: 32)
+                            .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Visa •••• 4242")
+                                .font(.subheadline).bold()
+                            Text("Expires 12/25")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                    .padding(.vertical, 4)
+                    
+                    HStack {
+                        Image(systemName: "creditcard.fill")
+                            .foregroundColor(.purple)
+                            .frame(width: 32, height: 32)
+                            .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Mastercard •••• 8888")
+                                .font(.subheadline).bold()
+                            Text("Expires 03/26")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("Payment Methods")
+                }
+                
+                Section {
+                    Button {
+                        // Add new payment method
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.blue)
+                            Text("Add Payment Method")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Quick Pay")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
 }
+
+struct NotificationSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var orderUpdates: Bool = true
+    @State private var promoAlerts: Bool = true
+    @State private var driverMessages: Bool = true
+    @State private var emailNotifications: Bool = false
+    @State private var smsNotifications: Bool = true
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Toggle("Order Updates", isOn: $orderUpdates)
+                    Toggle("Driver Messages", isOn: $driverMessages)
+                    Toggle("Promotional Alerts", isOn: $promoAlerts)
+                } header: {
+                    Text("Push Notifications")
+                } footer: {
+                    Text("Get real-time updates about your orders")
+                }
+                
+                Section {
+                    Toggle("Email Notifications", isOn: $emailNotifications)
+                    Toggle("SMS Notifications", isOn: $smsNotifications)
+                } header: {
+                    Text("Other Channels")
+                }
+                
+                Section {
+                    HStack {
+                        Image(systemName: "bell.badge.fill")
+                            .foregroundColor(.orange)
+                        Text("You have 3 unread notifications")
+                            .font(.subheadline)
+                        Spacer()
+                        Button("View") {
+                            // View notifications
+                        }
+                        .font(.subheadline).bold()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("Notifications")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+struct PromoCodesView: View {
+    @State private var promoCode: String = ""
+    @State private var availablePromos: [PromoCode] = [
+        .init(code: "WELCOME10", discount: "10% off", description: "New user discount", expiresAt: "Dec 31", isActive: true),
+        .init(code: "FREESHIP", discount: "Free delivery", description: "Orders over $25", expiresAt: "Jan 15", isActive: true),
+        .init(code: "SAVE5", discount: "$5 off", description: "Any order", expiresAt: "Used", isActive: false)
+    ]
+    
+    struct PromoCode: Identifiable {
+        let id = UUID()
+        let code: String
+        let discount: String
+        let description: String
+        let expiresAt: String
+        let isActive: Bool
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Add promo code section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Enter Promo Code")
+                        .font(.headline)
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: "tag.fill")
+                            .foregroundColor(.secondary)
+                        TextField("Enter code", text: $promoCode)
+                            .textInputAutocapitalization(.characters)
+                            .disableAutocorrection(true)
+                        
+                        Button {
+                            // Apply promo code
+                        } label: {
+                            Text("Apply")
+                                .font(.subheadline).bold()
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.blue, in: Capsule())
+                                .foregroundColor(.white)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(16)
+                .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+                .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+                
+                // Available promos
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Available Promos")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(availablePromos.filter { $0.isActive }.count) active")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    ForEach(availablePromos) { promo in
+                        PromoCodeCard(promo: promo)
+                    }
+                }
+                .padding(16)
+                .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+                .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+                
+                // Info section
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(.blue)
+                        Text("How Promo Codes Work")
+                            .font(.subheadline).bold()
+                    }
+                    
+                    Text("• Promo codes are automatically applied at checkout\n• Only one promo code can be used per order\n• Some codes may have minimum order requirements\n• Expired codes cannot be reactivated")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+                .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+        }
+        .background(AppTheme.softBG.ignoresSafeArea())
+        .navigationTitle("Promo Codes")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct PromoCodeCard: View {
+    let promo: PromoCodesView.PromoCode
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(promo.isActive ? Color.green.opacity(0.12) : Color.gray.opacity(0.12))
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Image(systemName: promo.isActive ? "tag.fill" : "tag.slash.fill")
+                        .foregroundColor(promo.isActive ? .green : .gray)
+                )
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(promo.code)
+                        .font(.subheadline).bold()
+                        .foregroundColor(promo.isActive ? .primary : .secondary)
+                    
+                    Spacer()
+                    
+                    if promo.isActive {
+                        Button {
+                            // Copy code
+                            UIPasteboard.general.string = promo.code
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.on.doc.fill")
+                                Text("Copy")
+                            }
+                            .font(.caption).bold()
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                Text(promo.discount)
+                    .font(.headline)
+                    .foregroundColor(promo.isActive ? .green : .secondary)
+                
+                Text(promo.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .foregroundColor(.secondary)
+                    Text(promo.isActive ? "Expires \(promo.expiresAt)" : promo.expiresAt)
+                        .foregroundColor(.secondary)
+                }
+                .font(.caption2)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(promo.isActive ? Color.white : Color(uiColor: .systemGray6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(promo.isActive ? Color.green.opacity(0.25) : Color.clear, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Order Flow
+
+struct OrderFlowView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var bagCount: Int
+    @Binding var pickupMode: CustomerHomeView.PickupMode
+    @Binding var scheduledDate: Date
+    let estimatedCost: Double
+    
+    @State private var currentStep: OrderStep = .address
+    @State private var address: String = ""
+    @State private var apartmentUnit: String = ""
+    @State private var specialInstructions: String = ""
+    @State private var selectedPaymentMethod: PaymentMethod = .visa
+    @State private var agreedToTerms: Bool = false
+    @State private var showingSuccess: Bool = false
+    @State private var validationError: String?
+    
+    enum OrderStep: Int, CaseIterable {
+        case address = 0
+        case bagCount = 1
+        case pickupTime = 2
+        case review = 3
+        case confirm = 4
+        
+        var title: String {
+            switch self {
+            case .address: return "Address"
+            case .bagCount: return "Bags"
+            case .pickupTime: return "Pickup Time"
+            case .review: return "Review"
+            case .confirm: return "Confirm"
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .address: return "mappin.circle.fill"
+            case .bagCount: return "bag.fill"
+            case .pickupTime: return "clock.fill"
+            case .review: return "list.bullet.clipboard.fill"
+            case .confirm: return "checkmark.seal.fill"
+            }
+        }
+    }
+    
+    enum PaymentMethod: String, CaseIterable {
+        case visa = "Visa •••• 4242"
+        case mastercard = "Mastercard •••• 8888"
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                VStack(spacing: 0) {
+                    // Progress indicator
+                    progressBar
+                    
+                    // Content
+                    ScrollView {
+                        VStack(spacing: 24) {
+                            currentStepView
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 24)
+                        .padding(.bottom, 100)
+                    }
+                }
+                
+                // Bottom buttons
+                VStack {
+                    Spacer()
+                    bottomButtons
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.clear, AppTheme.softBG.opacity(0.95)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 120)
+                        )
+                }
+                
+                // Success overlay
+                if showingSuccess {
+                    successOverlay
+                }
+            }
+            .background(AppTheme.softBG.ignoresSafeArea())
+            .navigationTitle("New Order")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Progress Bar
+    
+    private var progressBar: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 0) {
+                ForEach(OrderStep.allCases, id: \.rawValue) { step in
+                    if step != .address {
+                        Rectangle()
+                            .fill(step.rawValue <= currentStep.rawValue ? AppTheme.brandBlue : Color.secondary.opacity(0.3))
+                            .frame(height: 3)
+                    }
+                    
+                    Circle()
+                        .fill(step.rawValue <= currentStep.rawValue ? AppTheme.brandBlue : Color.secondary.opacity(0.3))
+                        .frame(width: step == currentStep ? 12 : 8, height: step == currentStep ? 12 : 8)
+                        .overlay(
+                            Circle()
+                                .stroke(AppTheme.brandBlue, lineWidth: step == currentStep ? 2 : 0)
+                                .frame(width: 18, height: 18)
+                        )
+                }
+            }
+            .padding(.horizontal, 16)
+            
+            Text(currentStep.title)
+                .font(.headline)
+                .foregroundColor(AppTheme.brandBlue)
+        }
+        .padding(.vertical, 16)
+        .background(.ultraThinMaterial)
+    }
+    
+    // MARK: - Current Step View
+    
+    @ViewBuilder
+    private var currentStepView: some View {
+        switch currentStep {
+        case .address:
+            addressStep
+        case .bagCount:
+            bagCountStep
+        case .pickupTime:
+            pickupTimeStep
+        case .review:
+            reviewStep
+        case .confirm:
+            confirmStep
+        }
+    }
+    
+    // MARK: - Address Step
+    
+    private var addressStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StepHeader(
+                icon: "mappin.circle.fill",
+                title: "Pickup Address",
+                subtitle: "Where should we pick up your laundry?"
+            )
+            
+            VStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Street Address")
+                        .font(.subheadline).bold()
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: "house.fill")
+                            .foregroundColor(.secondary)
+                        TextField("123 Main St", text: $address)
+                            .textContentType(.streetAddressLine1)
+                    }
+                    .padding(12)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(address.isEmpty ? Color.red.opacity(0.3) : Color.clear, lineWidth: 1)
+                    )
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Apt / Suite (Optional)")
+                        .font(.subheadline).bold()
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: "building.2.fill")
+                            .foregroundColor(.secondary)
+                        TextField("Apt 4B", text: $apartmentUnit)
+                            .textContentType(.streetAddressLine2)
+                    }
+                    .padding(12)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Special Instructions (Optional)")
+                        .font(.subheadline).bold()
+                        .foregroundColor(.secondary)
+                    
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "note.text")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                        TextField("e.g., Leave at front door", text: $specialInstructions, axis: .vertical)
+                            .lineLimit(3...5)
+                    }
+                    .padding(12)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(16)
+            .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+            
+            if let error = validationError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundColor(.red)
+                }
+                .padding(12)
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+    }
+    
+    // MARK: - Bag Count Step
+    
+    private var bagCountStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StepHeader(
+                icon: "bag.fill",
+                title: "How Many Bags?",
+                subtitle: "Each bag can hold approximately 15-20 items"
+            )
+            
+            VStack(spacing: 20) {
+                HStack(spacing: 16) {
+                    Button {
+                        if bagCount > 1 {
+                            bagCount -= 1
+                        }
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(width: 50, height: 50)
+                            .background(
+                                LinearGradient(
+                                    colors: bagCount > 1 ? [AppTheme.brandBlue, AppTheme.deepBlue] : [Color.gray, Color.gray],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            )
+                            .shadow(color: bagCount > 1 ? AppTheme.shadow : .clear, radius: 8, x: 0, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(bagCount <= 1)
+                    
+                    VStack(spacing: 8) {
+                        Text("\(bagCount)")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(AppTheme.brandBlue)
+                        Text("bag\(bagCount == 1 ? "" : "s")")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    
+                    Button {
+                        bagCount += 1
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(width: 50, height: 50)
+                            .background(
+                                LinearGradient(
+                                    colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            )
+                            .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(24)
+                .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+                .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 6)
+                
+                VStack(spacing: 12) {
+                    InfoRow(icon: "dollarsign.circle.fill", title: "Estimated Cost", value: "$\(Int(7 + max(0, bagCount - 1) * 6))", tint: .green)
+                    InfoRow(icon: "scalemass.fill", title: "Total Weight", value: "~\(bagCount * 15) lbs", tint: .blue)
+                }
+                .padding(16)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+            }
+        }
+    }
+    
+    // MARK: - Pickup Time Step
+    
+    private var pickupTimeStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StepHeader(
+                icon: "clock.fill",
+                title: "Pickup Time",
+                subtitle: "When would you like us to pick up your laundry?"
+            )
+            
+            VStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    ForEach(CustomerHomeView.PickupMode.allCases, id: \.self) { mode in
+                        Button {
+                            pickupMode = mode
+                        } label: {
+                            VStack(spacing: 12) {
+                                Image(systemName: mode == .asap ? "bolt.fill" : "calendar")
+                                    .font(.title2)
+                                    .foregroundColor(pickupMode == mode ? .white : AppTheme.brandBlue)
+                                
+                                Text(mode.rawValue)
+                                    .font(.headline)
+                                    .foregroundColor(pickupMode == mode ? .white : .primary)
+                                
+                                Text(mode == .asap ? "25-35 min" : "Schedule ahead")
+                                    .font(.caption)
+                                    .foregroundColor(pickupMode == mode ? .white.opacity(0.9) : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                            .background(
+                                pickupMode == mode ?
+                                LinearGradient(
+                                    colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ) :
+                                LinearGradient(colors: [Color.white, Color.white], startPoint: .top, endPoint: .bottom),
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(pickupMode == mode ? Color.clear : Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                            .shadow(color: pickupMode == mode ? AppTheme.shadow : .clear, radius: 12, x: 0, y: 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                if pickupMode == .later {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Select Date & Time")
+                            .font(.headline)
+                        
+                        DatePicker(
+                            "Pickup time",
+                            selection: $scheduledDate,
+                            in: Date()...,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                        .datePickerStyle(.graphical)
+                        .tint(AppTheme.brandBlue)
+                    }
+                    .padding(16)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+                }
+            }
+            .padding(16)
+            .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+        }
+    }
+    
+    // MARK: - Review Step
+    
+    private var reviewStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StepHeader(
+                icon: "list.bullet.clipboard.fill",
+                title: "Review Your Order",
+                subtitle: "Please verify all details before confirming"
+            )
+            
+            VStack(spacing: 16) {
+                ReviewSection(title: "Pickup Address") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(address)
+                            .font(.subheadline)
+                        if !apartmentUnit.isEmpty {
+                            Text(apartmentUnit)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        if !specialInstructions.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "note.text")
+                                    .foregroundColor(.secondary)
+                                Text(specialInstructions)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                }
+                
+                ReviewSection(title: "Order Details") {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Bags")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(bagCount) bag\(bagCount == 1 ? "" : "s")")
+                                .bold()
+                        }
+                        
+                        Divider()
+                        
+                        HStack {
+                            Text("Pickup Time")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(pickupTimeText)
+                                .bold()
+                        }
+                    }
+                    .font(.subheadline)
+                }
+                
+                ReviewSection(title: "Payment") {
+                    HStack {
+                        Image(systemName: "creditcard.fill")
+                            .foregroundColor(selectedPaymentMethod == .visa ? .blue : .purple)
+                        Text(selectedPaymentMethod.rawValue)
+                            .font(.subheadline)
+                        Spacer()
+                        Button("Change") {
+                            // Could expand to show payment selector
+                        }
+                        .font(.subheadline).bold()
+                    }
+                }
+                
+                ReviewSection(title: "Pricing") {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Service Fee")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("$\(Int(estimatedCost))")
+                        }
+                        
+                        HStack {
+                            Text("Processing")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("$1.00")
+                        }
+                        
+                        Divider()
+                        
+                        HStack {
+                            Text("Total")
+                                .font(.headline)
+                            Spacer()
+                            Text("$\(Int(estimatedCost + 1))")
+                                .font(.headline)
+                                .foregroundColor(AppTheme.brandBlue)
+                        }
+                    }
+                    .font(.subheadline)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Confirm Step
+    
+    private var confirmStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StepHeader(
+                icon: "checkmark.seal.fill",
+                title: "Almost Done!",
+                subtitle: "Review terms and confirm your order"
+            )
+            
+            VStack(spacing: 20) {
+                VStack(spacing: 16) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.title)
+                            .foregroundColor(AppTheme.success)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Your order is ready")
+                                .font(.headline)
+                            Text("We'll send you a confirmation shortly")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(16)
+                    .background(AppTheme.success.opacity(0.1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(isOn: $agreedToTerms) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("I agree to the Terms & Conditions")
+                                    .font(.subheadline).bold()
+                                Text("By continuing, you agree to our service terms and privacy policy")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .tint(AppTheme.brandBlue)
+                    }
+                    .padding(16)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .padding(16)
+                .background(AppTheme.cardBG, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+                
+                if let error = validationError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                    .padding(12)
+                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+        }
+    }
+    
+    // MARK: - Bottom Buttons
+    
+    private var bottomButtons: some View {
+        HStack(spacing: 12) {
+            if currentStep != .address {
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        currentStep = OrderStep(rawValue: currentStep.rawValue - 1) ?? .address
+                        validationError = nil
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .font(.headline)
+                    .foregroundColor(AppTheme.brandBlue)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(AppTheme.brandBlue, lineWidth: 2)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Button {
+                handleNextButton()
+            } label: {
+                HStack(spacing: 8) {
+                    Text(currentStep == .confirm ? "Place Order" : "Continue")
+                        .font(.headline)
+                    if currentStep != .confirm {
+                        Image(systemName: "chevron.right")
+                    }
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        colors: [AppTheme.brandBlue, AppTheme.deepBlue],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+                .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 6)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(height: 60)
+    }
+    
+    // MARK: - Success Overlay
+    
+    private var successOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.success)
+                        .frame(width: 100, height: 100)
+                        .scaleEffect(showingSuccess ? 1 : 0)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.6), value: showingSuccess)
+                    
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 50, weight: .bold))
+                        .foregroundColor(.white)
+                        .scaleEffect(showingSuccess ? 1 : 0)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.6).delay(0.2), value: showingSuccess)
+                }
+                
+                VStack(spacing: 8) {
+                    Text("Order Placed!")
+                        .font(.title.bold())
+                        .foregroundColor(.white)
+                    Text("We'll pick up your laundry soon")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
+                }
+                .opacity(showingSuccess ? 1 : 0)
+                .animation(.easeIn(duration: 0.3).delay(0.4), value: showingSuccess)
+            }
+            .padding(32)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func handleNextButton() {
+        // Validate current step
+        validationError = nil
+        
+        switch currentStep {
+        case .address:
+            if address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                validationError = "Please enter a pickup address"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+                return
+            }
+        case .bagCount:
+            if bagCount < 1 {
+                validationError = "Please select at least 1 bag"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+                return
+            }
+        case .pickupTime:
+            if pickupMode == .later && scheduledDate < Date() {
+                validationError = "Please select a future date and time"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+                return
+            }
+        case .review:
+            // No validation needed for review
+            break
+        case .confirm:
+            if !agreedToTerms {
+                validationError = "Please agree to the terms and conditions"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+                return
+            }
+            // Place order
+            placeOrder()
+            return
+        }
+        
+        // Success haptic
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        // Move to next step
+        if let nextStep = OrderStep(rawValue: currentStep.rawValue + 1) {
+            withAnimation(.spring(response: 0.3)) {
+                currentStep = nextStep
+            }
+        }
+    }
+    
+    private func placeOrder() {
+        // Success haptic
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        
+        // Show success animation
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            showingSuccess = true
+        }
+        
+        // Dismiss after delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            dismiss()
+        }
+    }
+    
+    private var pickupTimeText: String {
+        switch pickupMode {
+        case .asap:
+            return "ASAP (25-35 min)"
+        case .later:
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: scheduledDate)
+        }
+    }
+}
+
+// MARK: - Order Flow Helper Views
+
+private struct StepHeader: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(AppTheme.brandBlue)
+                    .frame(width: 40, height: 40)
+                    .background(AppTheme.brandBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.title2.bold())
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct InfoRow: View {
+    let icon: String
+    let title: String
+    let value: String
+    let tint: Color
+    
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(tint)
+                .frame(width: 24, height: 24)
+            Text(title)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .bold()
+        }
+        .font(.subheadline)
+    }
+}
+
+private struct ReviewSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            content
+        }
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: AppTheme.shadow, radius: 8, x: 0, y: 4)
+    }
+}
+
+// MARK: - Support Tickets
+
+struct SupportTicketsView: View {
+    var body: some View {
+        List {
+            Section("Contact Support") {
+                NavigationLink {
+                    Text("Chat Support")
+                } label: {
+                    Label("Start Live Chat", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+                
+                NavigationLink {
+                    Text("Call Support")
+                } label: {
+                    Label("Call Us", systemImage: "phone.fill")
+                }
+                
+                NavigationLink {
+                    Text("Email Support")
+                } label: {
+                    Label("Send Email", systemImage: "envelope.fill")
+                }
+            }
+            
+            Section("Recent Tickets") {
+                Text("No recent support tickets")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .navigationTitle("Support")
+    }
+}
+
